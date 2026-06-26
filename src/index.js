@@ -405,7 +405,7 @@ function startFloat(texte) {
 
     const scale   = 1 - e * 0.94;         // 1 → 0.06
     const opacity = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4;
-    const ty      = -e * H * 0.35;        // float up
+    const ty      = -e * window.innerHeight * 0.35;
     const blur    = e * 6;
 
     el.style.transform = \`translateY(\${ty}px) scale(\${scale})\`;
