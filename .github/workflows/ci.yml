@@ -30,7 +30,7 @@ jobs:
           token: ${{ secrets.CONFIG_REPO_TOKEN }}
       - name: Update Cloud Run image tag
         run: |
-          sed -i "s|image: .*/app4-pixelcalm:.*|image: europe-west9-docker.pkg.dev/cnp-terraform-500015/cnp-registry/app4-pixelcalm:${{ github.sha }}|" \
+          sed -i "s|image: europe-west9-docker.pkg.dev/cnp-terraform-500015/cnp-registry/app4-pixelcalm:.*|image: europe-west9-docker.pkg.dev/cnp-terraform-500015/cnp-registry/app4-pixelcalm:${{ github.sha }}|" \
             apps/app4-pixelcalm/crossplane/cloudrun-claim.yaml
           git config user.email "ci-bot@cnp"
           git config user.name "CI Bot"
