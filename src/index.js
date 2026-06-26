@@ -333,6 +333,136 @@ app.get('/', (_req, res) => {
   requestAnimationFrame(draw);
 })();
 
+// ── Audio ──
+let audioCtx = null;
+let ambientStarted = false;
+
+function initAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+function startAmbient() {
+  if (ambientStarted) return;
+  ambientStarted = true;
+  const ctx = initAudio();
+
+  const master = ctx.createGain();
+  master.gain.setValueAtTime(0, ctx.currentTime);
+  master.gain.linearRampToValueAtTime(0.55, ctx.currentTime + 6);
+  master.connect(ctx.destination);
+
+  function makeNoise() {
+    const buf  = ctx.createBuffer(1, ctx.sampleRate * 3, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop   = true;
+    src.start();
+    return src;
+  }
+
+  // Pluie douce : bruit filtré autour de 2–5 kHz
+  const rain       = makeNoise();
+  const rainBP     = ctx.createBiquadFilter();
+  rainBP.type      = 'bandpass';
+  rainBP.frequency.value = 3200;
+  rainBP.Q.value   = 0.6;
+  const rainGain   = ctx.createGain();
+  rainGain.gain.value = 0.45;
+  rain.connect(rainBP);
+  rainBP.connect(rainGain);
+  rainGain.connect(master);
+
+  // Pluie fine (haute fréquence)
+  const rain2      = makeNoise();
+  const rainHP     = ctx.createBiquadFilter();
+  rainHP.type      = 'highpass';
+  rainHP.frequency.value = 7000;
+  const rainGain2  = ctx.createGain();
+  rainGain2.gain.value = 0.12;
+  rain2.connect(rainHP);
+  rainHP.connect(rainGain2);
+  rainGain2.connect(master);
+
+  // Vent doux : bruit grave avec LFO lent
+  const wind       = makeNoise();
+  const windLP     = ctx.createBiquadFilter();
+  windLP.type      = 'lowpass';
+  windLP.frequency.value = 280;
+  const windGain   = ctx.createGain();
+  windGain.gain.value = 0.35;
+  const windLFO    = ctx.createOscillator();
+  const windLFOAmp = ctx.createGain();
+  windLFO.frequency.value  = 0.07;
+  windLFOAmp.gain.value    = 0.18;
+  windLFO.connect(windLFOAmp);
+  windLFOAmp.connect(windGain.gain);
+  windLFO.start();
+  wind.connect(windLP);
+  windLP.connect(windGain);
+  windGain.connect(master);
+}
+
+function playReleaseSound() {
+  const ctx = initAudio();
+  const t   = ctx.currentTime;
+
+  // Delay (pseudo-reverb)
+  const delay    = ctx.createDelay(1.0);
+  const fbGain   = ctx.createGain();
+  const wetGain  = ctx.createGain();
+  delay.delayTime.value = 0.28;
+  fbGain.gain.value     = 0.35;
+  wetGain.gain.value    = 0.28;
+  delay.connect(fbGain);
+  fbGain.connect(delay);
+  delay.connect(wetGain);
+  wetGain.connect(ctx.destination);
+
+  function tone(freq, type, startT, duration, peakVol) {
+    const osc = ctx.createOscillator();
+    const g   = ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    g.gain.setValueAtTime(0, startT);
+    g.gain.linearRampToValueAtTime(peakVol, startT + 0.08);
+    g.gain.exponentialRampToValueAtTime(0.001, startT + duration);
+    osc.connect(g);
+    g.connect(ctx.destination);
+    g.connect(delay);
+    osc.start(startT);
+    osc.stop(startT + duration + 0.1);
+  }
+
+  // Whoosh montant
+  const whoosh = ctx.createOscillator();
+  const wGain  = ctx.createBiquadFilter();
+  const wVol   = ctx.createGain();
+  whoosh.type = 'sine';
+  whoosh.frequency.setValueAtTime(180, t);
+  whoosh.frequency.exponentialRampToValueAtTime(1400, t + 2.8);
+  wGain.type = 'bandpass';
+  wGain.frequency.value = 500;
+  wGain.Q.value = 1.5;
+  wVol.gain.setValueAtTime(0, t);
+  wVol.gain.linearRampToValueAtTime(0.14, t + 0.15);
+  wVol.gain.exponentialRampToValueAtTime(0.001, t + 3.2);
+  whoosh.connect(wGain);
+  wGain.connect(wVol);
+  wVol.connect(ctx.destination);
+  wVol.connect(delay);
+  whoosh.start(t);
+  whoosh.stop(t + 3.5);
+
+  // Carillon A mineur : A4 C5 E5
+  tone(440,   'sine',     t,        2.5, 0.10);
+  tone(523.25,'sine',     t + 0.18, 2.2, 0.07);
+  tone(659.25,'triangle', t + 0.32, 1.8, 0.05);
+}
+
 // ── Pages ──
 function show(id) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -354,6 +484,8 @@ btnRelease.addEventListener('click', async () => {
   if (!texte) { textarea.focus(); return; }
 
   btnRelease.disabled = true;
+  startAmbient();
+  playReleaseSound();
 
   // Show float page
   show('page-float');
@@ -433,7 +565,7 @@ async function loadJournal() {
     const res  = await fetch('/api/pensees');
     const data = await res.json();
     if (!data.length) {
-      list.innerHTML = '<p class="empty-journal">Aucune pensée libérée pour l\'instant.</p>';
+      list.innerHTML = '<p class="empty-journal">Aucune pensée libérée pour l&#39;instant.</p>';
       return;
     }
     list.innerHTML = data.map(p => \`
@@ -454,6 +586,11 @@ function escHtml(s) {
 function fmtDate(s) {
   try { return new Date(s + 'Z').toLocaleString('fr-FR'); } catch (_) { return s; }
 }
+
+// ── Ambient démarre dès la première interaction (politique autoplay) ──
+['pointerdown', 'keydown'].forEach(evt =>
+  document.addEventListener(evt, () => startAmbient(), { once: true })
+);
 </script>
 </body>
 </html>`);
