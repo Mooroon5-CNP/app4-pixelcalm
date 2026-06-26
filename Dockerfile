@@ -7,7 +7,7 @@ RUN npm ci --omit=dev
 
 FROM node:20-alpine
 # hadolint ignore=DL3018
-RUN apk add --no-cache tini
+RUN apk add --no-cache tini libgcc libstdc++
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY src/ ./src/
