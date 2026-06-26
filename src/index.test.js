@@ -1,3 +1,4 @@
+/* eslint-env jest */
 const os = require('os');
 process.env.DATA_DIR = os.tmpdir();
 
