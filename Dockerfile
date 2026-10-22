@@ -6,9 +6,9 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 FROM node:20-alpine
-# hadolint ignore=DL3018
 # Le processus final utilise node directement ; npm reste dans l'étape deps.
 # Retirer npm évite d'embarquer ses dépendances de build dans le runtime.
+# hadolint ignore=DL3018
 RUN apk add --no-cache tini libgcc libstdc++ \
     && rm -rf /usr/local/lib/node_modules/npm \
     && rm -f /usr/local/bin/npm /usr/local/bin/npx
