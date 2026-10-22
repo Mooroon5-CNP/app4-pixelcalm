@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  pipeline:
+    uses: Mooroon5-CNP/ci-templates/.github/workflows/pipeline.yml@main
+    with:
+      app_name: "app4-pixelcam"
+      app_port: "8080"
+      config_repo_url: "https://github.com/Mooroon5-CNP/config-repo"
+      target_cloud: "gcp"
+    secrets:
+      CONFIG_REPO_TOKEN: ${{ secrets.CONFIG_REPO_TOKEN }}
