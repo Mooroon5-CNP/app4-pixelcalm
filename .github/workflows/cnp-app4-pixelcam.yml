@@ -1,0 +1,22 @@
+name: CNP — app4-pixelcam
+'on':
+  push:
+    branches:
+      - main
+      - prod
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: cnp-app4-pixelcam-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  pipeline:
+    uses: Mooroon5-CNP/ci-templates/.github/workflows/pipeline.yml@main
+    with:
+      app_name: app4-pixelcam
+      target_cloud: gcp
+      config_repo_url: https://github.com/Mooroon5-CNP/config-repo
+      gitops_mode: portal
+    secrets:
+      CONFIG_REPO_TOKEN: ${{ secrets.CONFIG_REPO_TOKEN }}
