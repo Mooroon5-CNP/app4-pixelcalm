@@ -1,14 +1,10 @@
 'use strict';
 
 const express = require('express');
-const Database = require('better-sqlite3');
-const path = require('path');
-const fs = require('fs');
+const { createStorage } = require('./storage');
 const winston = require('winston');
 
 const PORT = process.env.PORT || 8080;
-const DATA_DIR = process.env.DATA_DIR || '/tmp';
-const DB_PATH = path.join(DATA_DIR, 'pensees.db');
 
 const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
@@ -17,22 +13,10 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console()],
 });
 
-fs.mkdirSync(DATA_DIR, { recursive: true });
-
-const db = new Database(DB_PATH);
-db.exec(`
-  CREATE TABLE IF NOT EXISTS pensees (
-    id       INTEGER PRIMARY KEY AUTOINCREMENT,
-    texte    TEXT    NOT NULL,
-    saved_at TEXT    NOT NULL DEFAULT (datetime('now'))
-  )
-`);
-
-const insertPensee = db.prepare('INSERT INTO pensees (texte) VALUES (?)');
-const getPensees  = db.prepare('SELECT id, texte, saved_at FROM pensees ORDER BY id DESC LIMIT 60');
-const countTotal  = db.prepare('SELECT COUNT(*) as n FROM pensees');
-
+function createApp(storage = createStorage()) {
 const app = express();
+app.locals.storage = storage;
+const route = handler => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 app.use(express.json());
 
 app.use((req, res, next) => {
@@ -41,24 +25,30 @@ app.use((req, res, next) => {
 });
 
 app.get('/healthz', (_req, res) => res.json({ status: 'ok' }));
-app.get('/ready',   (_req, res) => res.json({ status: 'ready' }));
+const readiness = route(async (_req, res) => {
+  try {
+    if (await storage.healthy()) return res.json({ status: 'ready' });
+  } catch (_) { /* Une base injoignable ou clôturée rend l'app indisponible. */ }
+  return res.status(503).json({ status: 'unavailable' });
+});
+app.get('/ready', readiness);
+app.get('/health', readiness);
 
-app.post('/api/pensee', (req, res) => {
-  const texte = (req.body.texte || '').trim();
+app.post('/api/pensee', route(async (req, res) => {
+  const texte = typeof req.body.texte === 'string' ? req.body.texte.trim() : '';
   if (!texte || texte.length > 280) {
     return res.status(400).json({ error: 'Texte requis (1–280 caractères)' });
   }
-  insertPensee.run(texte);
-  const { n } = countTotal.get();
+  const n = await storage.add(texte);
   return res.status(201).json({ ok: true, total: n });
-});
+}));
 
-app.get('/api/pensees', (_req, res) => {
-  res.json(getPensees.all());
-});
+app.get('/api/pensees', route(async (_req, res) => {
+  res.json(await storage.list());
+}));
 
-app.get('/', (_req, res) => {
-  const { n } = countTotal.get();
+app.get('/', route(async (_req, res) => {
+  const n = await storage.count();
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(`<!DOCTYPE html>
 <html lang="fr">
@@ -594,11 +584,22 @@ function fmtDate(s) {
 </script>
 </body>
 </html>`);
-});
+}));
 
+app.use((error, _req, res, next) => {
+  if (res.headersSent) return next(error);
+  if (error.type === 'entity.parse.failed') return res.status(400).json({ error: 'JSON invalide' });
+  logger.warn('storage unavailable', { engine: storage.engine });
+  return res.status(503).json({ error: 'Stockage temporairement indisponible' });
+});
+return app;
+}
+
+const app = createApp();
 module.exports = app;
+module.exports.createApp = createApp;
 
 if (require.main === module) {
   const server = app.listen(PORT, () => logger.info('server started', { port: PORT }));
-  process.on('SIGTERM', () => server.close(() => process.exit(0)));
+  process.on('SIGTERM', () => server.close(async () => { await app.locals.storage.close(); process.exit(0); }));
 }
